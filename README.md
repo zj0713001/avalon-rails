@@ -2,6 +2,10 @@ Rails 3.1 asset-pipeline gem to provide avalon.js
 
 avalon js: https://github.com/RubyLouvre/avalon
 
+# v 0.0.3
+
+添加*.min.js
+
 # Setup
 
 Have in your Gemfile:
@@ -9,10 +13,6 @@ Have in your Gemfile:
 gem 'avalon-rails'
 
 And, have in your application.js manifest:
-
-=== v 0.0.3
-
-添加*.min.js
 
 //= require avalon //兼容IE6
 
