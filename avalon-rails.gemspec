@@ -1,5 +1,5 @@
 # coding: utf-8
-lib = File.expand_path('../lib', __FILE__)
+$:.push File.expand_path("../lib", __FILE__)
 require 'avalon-rails/version'
 
 Gem::Specification.new do |spec|
