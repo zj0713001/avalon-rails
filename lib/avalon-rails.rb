@@ -1,4 +1,4 @@
-require "avalon/rails/version"
+require "avalon-rails/version"
 
 module Avalon
   module Rails
