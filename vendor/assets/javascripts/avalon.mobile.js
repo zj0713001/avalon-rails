@@ -5,7 +5,7 @@
  http://weibo.com/jslouvre/
  
  Released under the MIT license
- avalon.mobile.js(支持触屏事件) 1.391 build in 2015.1.27 
+ avalon.mobile.js(支持触屏事件) 1.391 build in 2015.1.31 
 _________
  support IE6+ and other browsers
  ==================================================*/
@@ -260,10 +260,11 @@ avalon.mix({
         if (typeof hook === "object") {
             type = hook.type
             if (hook.deel) {
-                fn = hook.deel(el, fn)
+                fn = hook.deel(el, type, fn, true)
             }
         }
-        el.addEventListener(type, fn, !!phase)
+        if (!fn.unbind)
+            el.addEventListener(type, fn, !!phase)
         return fn
     },
     /*卸载事件*/
@@ -273,6 +274,9 @@ avalon.mix({
         var callback = fn || noop
         if (typeof hook === "object") {
             type = hook.type
+            if (hook.deel) {
+                fn = hook.deel(el, type, fn, false)
+            }
         }
         el.removeEventListener(type, callback, !!phase)
     },
@@ -3780,10 +3784,10 @@ var filters = avalon.filters = {
                 replace(/>/g, '&gt;')
     },
     currency: function(amount, symbol, fractionSize) {
-        return (symbol || "\uFFE5") + numberFormat(amount, isFinite(fractionSize) ? fractionSize: 2)
+        return (symbol || "\uFFE5") + numberFormat(amount, isFinite(fractionSize) ? fractionSize : 2)
     },
     number: function(number, fractionSize) {
-        return  numberFormat(number, isFinite(fractionSize) ? fractionSize: 3 )
+        return  numberFormat(number, isFinite(fractionSize) ? fractionSize : 3)
     }
 }
 /*
@@ -3821,7 +3825,7 @@ var filters = avalon.filters = {
  */
 new function() {
     function toInt(str) {
-        return parseInt(str, 10)
+        return parseInt(str, 10) || 0
     }
 
     function padNumber(num, digits, trim) {
@@ -3893,34 +3897,7 @@ new function() {
         a: ampmGetter,
         Z: timeZoneGetter
     }
-    var DATE_FORMATS_SPLIT = /((?:[^yMdHhmsaZE']+)|(?:'(?:[^']|'')*')|(?:E+|y+|M+|d+|H+|h+|m+|s+|a|Z))(.*)/,
-            NUMBER_STRING = /^\d+$/
-    var riso8601 = /^(\d{4})-?(\d+)-?(\d+)(?:T(\d+)(?::?(\d+)(?::?(\d+)(?:\.(\d+))?)?)?(Z|([+-])(\d+):?(\d+))?)?$/
-    // 1        2       3         4          5          6          7          8  9     10      11
-
-    function jsonStringToDate(string) {
-        var match
-        if (match = string.match(riso8601)) {
-            var date = new Date(0),
-                    tzHour = 0,
-                    tzMin = 0,
-                    dateSetter = match[8] ? date.setUTCFullYear : date.setFullYear,
-                    timeSetter = match[8] ? date.setUTCHours : date.setHours
-            if (match[9]) {
-                tzHour = toInt(match[9] + match[10])
-                tzMin = toInt(match[9] + match[11])
-            }
-            dateSetter.call(date, toInt(match[1]), toInt(match[2]) - 1, toInt(match[3]))
-            var h = toInt(match[4] || 0) - tzHour
-            var m = toInt(match[5] || 0) - tzMin
-            var s = toInt(match[6] || 0)
-            var ms = Math.round(parseFloat('0.' + (match[7] || 0)) * 1000)
-            timeSetter.call(date, h, m, s, ms)
-            return date
-        }
-        return string
-    }
-    var rfixYMD = /^(\d+)\D(\d+)\D(\d+)/
+    var rdateFormat = /((?:[^yMdHhmsaZE']+)|(?:'(?:[^']|'')*')|(?:E+|y+|M+|d+|H+|h+|m+|s+|a|Z))(.*)/
     filters.date = function(date, format) {
         var locate = filters.date.locate,
                 text = "",
@@ -3929,17 +3906,50 @@ new function() {
         format = format || "mediumDate"
         format = locate[format] || format
         if (typeof date === "string") {
-            if (NUMBER_STRING.test(date)) {
+            if (/^\d+$/.test(date)) {
                 date = toInt(date)
             } else {
                 var trimDate = date.trim()
-                date = trimDate.replace(rfixYMD, function(a, b, c, d) {
-                    var array = d.length === 4 ? [d, b, c] : [b, c, d]
-                    return array.join("-")
+                var dateArray = [0, 0, 0, 0, 0, 0, 0]
+                var oDate = new Date(0)
+                //取得年月日
+                trimDate = trimDate.replace(/^(\d+)\D(\d+)\D(\d+)/, function(_, a, b, c) {
+                    var array = c.length === 4 ? [c, a, b] : [a, b, c]
+                    dateArray[0] = toInt(array[0]) //年
+                    dateArray[1] = toInt(array[1]) - 1 //月
+                    dateArray[2] = toInt(array[2])//日
+                    return ""
                 })
-                date = jsonStringToDate(date)
+                var dateSetter = oDate.setFullYear
+                var timeSetter = oDate.setHours
+                trimDate = trimDate.replace(/[T\s](\d+):(\d+):?(\d+)?\.?(\d)?/, function(_, a, b, c, d) {
+                    dateArray[3] = toInt(a) //小时
+                    dateArray[4] = toInt(b) //分钟
+                    dateArray[5] = toInt(c) //秒
+                    if (d) {
+                        dateArray[6] = Math.round(parseFloat("0." + d) * 1000)  //毫秒
+                    }
+                    dateArray[6] = d || ""
+                    return ""
+                })
+                var tzHour = 0
+                var tzMin = 0
+                trimDate = trimDate.replace(/Z|([+-])(\d\d):?(\d\d)/, function(z, symbol, c, d) {
+                    dateSetter = oDate.setUTCFullYear
+                    timeSetter = oDate.setUTCHours
+                    if (symbol) {
+                        tzHour = toInt(symbol + c)
+                        tzMin = toInt(symbol + d)
+                    }
+                    return ""
+                })
+
+                dateArray[3] -= tzHour
+                dateArray[4] -= tzMin
+                dateSetter.apply(oDate, dateArray.slice(0, 3))
+                timeSetter.apply(oDate, dateArray.slice(3))
+                date = oDate
             }
-            date = new Date(date)
         }
         if (typeof date === "number") {
             date = new Date(date)
@@ -3948,7 +3958,7 @@ new function() {
             return
         }
         while (format) {
-            match = DATE_FORMATS_SPLIT.exec(format)
+            match = rdateFormat.exec(format)
             if (match) {
                 parts = parts.concat(match.slice(1))
                 format = parts.pop()
@@ -4341,21 +4351,21 @@ new function() {
             return url
         }
         //2. 获取模块ID(去掉资源前缀，扩展名 hash, query)
-        var plugin = "js"
+        var res = "js"
         url = url.replace(/^(\w+)\!/, function(a, b) {
-            plugin = b
+            res = b
             return ""
         })
-        plugin = plugins[plugin] || noop
+        var plugin = plugins[res] || noop
         var query = ""
         var id = url.replace(rquery, function(a) {
             query = a
             return ""
         })
-        var ext = plugin.ext || ""
-        if (ext && id.substr(id.length - ext.length) === ext) {//去掉扩展名
-            url = id.slice(0, -ext.length)
-            id = id.slice(-ext.length)
+        var ext = ""
+        if (res === "js") {
+            url = id = id.replace(/\.js$/i, "")
+            ext = ".js"
         }
         //3. 是否命中paths配置项
         var usePath = 0
@@ -4623,6 +4633,40 @@ new function() {
     } else if (IE9_10touch) {
         touchNames = ["MSPointerDown", "MSPointerMove", "MSPointerUp", "MSPointerCancel"]
     }
+
+
+    if (touchSupported) {
+        //我们经由ms-click, ms-on-tap绑定事件, 其实没有直接绑在元素,全部放到一个数组中
+        //当通过touchstart, touchend等事件混合计算得当前场景应该需要执行click, tap,那么
+        //直接执行el["msdispatch"]方法
+        "click,tap".replace(/\w+/g, function(method) {
+            avalon.eventHooks[method] = {
+                type: method,
+                deel: function(el, type, fn, isAdd) {
+                    var listName = "ms" + method + "list"
+                    var fns = el[listName] || (el[listName] = [])
+                    if (!el["msdispatch"]) {
+                        el["msdispatch"] = function(event) {
+                            if (event.fireByAvalon) {
+                                for (var i = 0, fn; fn = fns[i++]; ) {
+                                    fn.call(el, event)
+                                }
+                            }
+                        }
+                        el.addEventListener(type, el["msdispatch"])
+                    }
+                    if (isAdd) {
+                        fns.push(fn)
+                    } else {
+                        avalon.Array.remove(fns, fn)
+                    }
+                    fn.unbind = true
+                    return fn
+                }
+            }
+        })
+    }
+
     var touchProxy = {}
     //判定滑动方向
     function swipeDirection(x1, x2, y1, y2) {
@@ -4637,11 +4681,7 @@ new function() {
             y: e.clientY
         }
     }
-    function resetState(event) {
-        avalon(touchProxy.element).removeClass(fastclick.activeClass)
-        if (touchProxy.tapping)
-            touchProxy.element = null
-    }
+
     function touchend(event) {
         var element = touchProxy.element
         if (!element)
@@ -4655,6 +4695,9 @@ new function() {
         if (touchProxy.doubleIndex === 2) {//如果已经点了两次,就可以触发dblclick 回调
             touchProxy.doubleIndex = 0
             canDoubleClick = true
+            if (avalon.config.stopZoom) {
+                event.preventDefault()
+            }
         }
         if (totalX > 30 || totalY > 30) {
             //如果用户滑动的距离有点大，就认为是swipe事件
@@ -4666,7 +4709,9 @@ new function() {
             W3CFire(element, "swipe" + direction, details)
         } else {
             //如果移动的距离太少，则认为是tap,click,hold,dblclick
-            if (fastclick.canClick(element)) {
+            if (fastclick.canClick(element) &&
+                    touchProxy.mx < fastclick.dragDistance &&
+                    touchProxy.my < fastclick.dragDistance) {
                 // 失去焦点的处理
                 if (document.activeElement && document.activeElement !== element) {
                     document.activeElement.blur()
@@ -4694,27 +4739,41 @@ new function() {
                     }
                     touchProxy.doubleIndex = 0
                 }
-                if (diff > 750) {
+                if (diff > fastclick.clickDuration) {
                     W3CFire(element, "hold")
                     W3CFire(element, "longtap")
                 }
             }
         }
-        resetState(event)
+        avalon(element).removeClass(fastclick.activeClass)
+        touchProxy.element = null
     }
-
-    document.addEventListener(touchNames[1], resetState)
+    document.addEventListener(touchNames[1], function(event) {
+        if (!touchProxy.element)
+            return
+        var e = getCoordinates(event)
+        touchProxy.mx += Math.abs(touchProxy.cx - e.x)
+        touchProxy.my += Math.abs(touchProxy.cy - e.y)
+        if (touchProxy.tapping && (touchProxy.mx > fastclick.dragDistance || touchProxy.my > fastclick.dragDistance)) {
+            touchProxy.element = null
+        }
+    })
     document.addEventListener(touchNames[2], touchend)
     if (touchNames[3]) {
-        document.addEventListener(touchNames[3], resetState)
+        document.addEventListener(touchNames[3], touchend)
     }
     self["clickHook"] = function(data) {
         function touchstart(event) {
             var element = data.element
             avalon.mix(touchProxy, getCoordinates(event))
+            touchProxy.cx = touchProxy.x
+            touchProxy.cy = touchProxy.y
+            touchProxy.mx = 0 //计算总结移动了多少距离，指在移动距离重分
+            touchProxy.my = 0
             touchProxy.startTime = Date.now()
             touchProxy.event = data.param
-            touchProxy.tapping = /click|tap$/.test(touchProxy.event)
+            touchProxy.tapping = /click|tap|hold$/.test(touchProxy.event)
+
             touchProxy.element = element
             //--------------处理双击事件--------------
             if (touchProxy.element !== element) {
@@ -4731,24 +4790,18 @@ new function() {
                 avalon(element).addClass(fastclick.activeClass)
             }
         }
-
         function needFixClick(type) {
-            return type === "click" 
+            return type === "click"
         }
         if (needFixClick(data.param) ? touchSupported : true) {
             data.specialBind = function(element, callback) {
-                function wrapCallback(e) {
-                    //在移动端上,如果用户是用click, dblclick绑定事件那么注意屏蔽原生的click,dblclick,只让手动触发的进来
-                    if (needFixClick(e.type) ? e.hasFixClick : true) {
-                        callback.call(element, e)
-                    }
-                }
                 element.addEventListener(touchNames[0], touchstart)
-                element.addEventListener(data.param, wrapCallback)
+                data.msCallback = callback
+                avalon.bind(element, data.param, callback)
             }
             data.specialUnbind = function() {
                 element.removeEventListener(touchNames[0], touchstart)
-                element.removeEventListener(data.param, wrapCallback)
+                avalon.bind(data.element, data.param, data.msCallback)
             }
         }
     }
@@ -4758,15 +4811,13 @@ new function() {
     var fastclick = avalon.fastclick = {
         activeClass: "ms-click-active",
         clickDuration: 750, //小于750ms是点击，长于它是长按或拖动
-        dragDistance: 10, //最大移动的距离
+        dragDistance: 30, //最大移动的距离
         fireEvent: function(element, type, event) {
             var clickEvent = document.createEvent("MouseEvents")
             clickEvent.initMouseEvent(type, true, true, window, 1, event.screenX, event.screenY,
                     event.clientX, event.clientY, false, false, false, false, 0, null)
-            Object.defineProperty(clickEvent, "hasFixClick", {
-                get: function() {
-                    return "司徒正美"
-                }
+            Object.defineProperty(clickEvent, "fireByAvalon", {
+                value: true
             })
             element.dispatchEvent(clickEvent)
         },
@@ -4819,7 +4870,7 @@ new function() {
     };
 
 
-    ["swipe", "swipeleft", "swiperight", "swipeup", "swipedown", "doubletap", "tap", "longtap", "hold"].forEach(function(method) {
+    ["swipe", "swipeleft", "swiperight", "swipeup", "swipedown", "doubletap", "tap", "dblclick", "longtap", "hold"].forEach(function(method) {
         self[method + "Hook"] = self["clickHook"]
     })
 

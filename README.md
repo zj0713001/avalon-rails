@@ -2,6 +2,12 @@ Rails 3.1 asset-pipeline gem to provide avalon.js
 
 avalon js: https://github.com/RubyLouvre/avalon
 
+# v 1.3.9.1
+
+添加*.shim.js
+
+将版本号保持与avalon js同步
+
 # v 0.0.3
 
 添加*.min.js
