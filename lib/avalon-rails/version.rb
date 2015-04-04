@@ -1,5 +1,5 @@
 module Avalon
   module Rails
-    VERSION = "1.3.9.1.20150212184918"
+    VERSION = "1.4.1.1.20150404164109"
   end
 end
