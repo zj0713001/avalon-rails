@@ -5,7 +5,7 @@
  http://weibo.com/jslouvre/
  
  Released under the MIT license
- avalon.mobile.old.js 1.4.7 built in 2015.10.13
+ avalon.mobile.old.js 1.4.7.1 built in 2015.10.30
  support IE8 and other browsers
  ==================================================*/
 (function(global, factory) {
@@ -302,7 +302,7 @@ function _number(a, len) { //用于模拟slice, splice的效果
 avalon.mix({
     rword: rword,
     subscribers: subscribers,
-    version: 1.47,
+    version: 1.471,
     ui: {},
     log: log,
     slice: W3C ? function (nodes, start, end) {
@@ -1128,7 +1128,7 @@ function modelFactory(source, $special, $model) {
         return collection
     }
     //0 null undefined || Node || VModel(fix IE6-8 createWithProxy $val: val引发的BUG)
-    if (!source || source.nodeType > 0 || (source.$id && source.$events)) {
+    if (!source || (source.$id && source.$events) || (source.nodeType > 0 && source.nodeName) ) {
         return source
     }
     var $skipArray = Array.isArray(source.$skipArray) ? source.$skipArray : []
@@ -1321,6 +1321,7 @@ function makeComplexAccessor(name, initValue, valueType, list, parentModel) {
                 delete a.$lock
                 a._fire("set")
             } else if (valueType === "object") {
+                value = value.$model ? value.$model : value
                 var observes = this.$events[name] || []
                 var newObject = avalon.mix(true, {}, value)
                 for(i in son ){
@@ -1393,7 +1394,7 @@ var isEqual = Object.is || function (v1, v2) {
 }
 
 function isObservable(name, value, $skipArray) {
-    if (isFunction(value) || value && value.nodeType) {
+    if (isFunction(value) || value && value.nodeName && (value.nodeType > 0) ) {
         return false
     }
     if ($skipArray.indexOf(name) !== -1) {
@@ -1822,12 +1823,14 @@ avalon.injectBinding = function (data) {
             if(value === void 0){
                 delete data.evaluator
             }
-            data.handler(value, data.element, data)
+            if (data.handler) {
+                data.handler(value, data.element, data)
+            }
         } catch (e) {
             log("warning:exception throwed in [avalon.injectBinding] " , e)
             delete data.evaluator
             var node = data.element
-            if (node.nodeType === 3) {
+            if (node && node.nodeType === 3) {
                 var parent = node.parentNode
                 if (kernel.commentInterpolate) {
                     parent.replaceChild(DOC.createComment(data.value), node)
@@ -3410,6 +3413,10 @@ bindingExecutors.attr = function (val, elem, data) {
         var replace = data.includeReplace
         var target = replace ? elem.parentNode : elem
         var scanTemplate = function (text) {
+            if (data.vmodels === null) {
+                return
+            }
+
             if (loaded) {
                 var newText = loaded.apply(target, [text].concat(vmodels))
                 if (typeof newText === "string")
@@ -3429,7 +3436,7 @@ bindingExecutors.attr = function (val, elem, data) {
                 }
             }
             data.includeLastID = val
-            while (true) {
+            while (data.startInclude) {
                 var node = data.startInclude.nextSibling
                 if (node && node !== data.endInclude) {
                     target.removeChild(node)
@@ -3800,7 +3807,7 @@ if (IEVersion) {
         }
     })
 }
-
+var rnoduplex = /^(file|button|reset|submit|checkbox|radio|range)$/
 //处理radio, checkbox, text, textarea, password
 duplexBinding.INPUT = function (element, evaluator, data) {
     var $type = element.type,
@@ -3832,9 +3839,23 @@ duplexBinding.INPUT = function (element, evaluator, data) {
     }
     //当model变化时,它就会改变value的值
     data.handler = function () {
-        var val = data.pipe(evaluator(), data, "set")  //fix #673
+        var val = data.pipe(evaluator(), data, "set")  //fix #673 #1106
         if (val !== element.oldValue) {
+            var fixCaret = false
+            if (element.msFocus) {
+                try {
+                    var pos = getCaret(element)
+                    if (pos.start === pos.end) {
+                        pos = pos.start
+                        fixCaret = true
+                    }
+                } catch (e) {
+                }
+            }
             element.value = element.oldValue = val
+            if (fixCaret) {
+                setCaret(element, pos, pos)
+            }
         }
     }
     if (data.isChecked || $type === "radio") {
@@ -3925,14 +3946,18 @@ duplexBinding.INPUT = function (element, evaluator, data) {
                     break
             }
         })
-        bound("focus", function () {
-            element.msFocus = true
-        })
-        bound("blur", function () {
-            element.msFocus = false
-        })
 
-        if (!/^(file|button|reset|submit|checkbox|radio)$/.test(element.type)) {
+
+        if (!rnoduplex.test(element.type)) {
+            if (element.type !== "hidden") {
+                bound("focus", function () {
+                    element.msFocus = true
+                })
+                bound("blur", function () {
+                    element.msFocus = false
+                })
+            }
+
             element.avalonSetter = updateVModel //#765
             watchValueInTimer(function () {
                 if (root.contains(element)) {
@@ -3944,13 +3969,42 @@ duplexBinding.INPUT = function (element, evaluator, data) {
                 }
             })
         }
-        
+
     }
 
     avalon.injectBinding(data)
     callback.call(element, element.value)
 }
 duplexBinding.TEXTAREA = duplexBinding.INPUT
+function getCaret(ctrl, start, end) {
+    if (ctrl.setSelectionRange) {
+        start = ctrl.selectionStart
+        end = ctrl.selectionEnd
+    } else if (document.selection && document.selection.createRange) {
+        var range = document.selection.createRange()
+        start = 0 - range.duplicate().moveStart('character', -100000)
+        end = start + range.text.length
+    }
+    return {
+        start: start,
+        end: end
+    }
+}
+function setCaret(ctrl, begin, end) {
+    if (!ctrl.value || ctrl.readOnly)
+        return
+    if (ctrl.createTextRange) {//IE6-9
+        setTimeout(function () {
+            var range = ctrl.createTextRange()
+            range.collapse(true);
+            range.moveStart("character", begin)
+            range.select()
+        }, 17)
+    } else {
+        ctrl.selectionStart = begin
+        ctrl.selectionEnd = end
+    }
+}
 duplexBinding.SELECT = function(element, evaluator, data) {
     var $elem = avalon(element)
 
@@ -4158,8 +4212,10 @@ bindingHandlers.repeat = function (data, vmodels) {
         }
     }
 
+    var oldHandler = data.handler
     data.handler = noop
     avalon.injectBinding(data)
+    data.handler = oldHandler
 
     var elem = data.element
     if (elem.nodeType === 1) {
@@ -4658,7 +4714,7 @@ bindingHandlers.widget = function(data, vmodels) {
                         options.onInit.call(elem, vmodel, options, vmodels)
                     }
                 })
-            } catch (e) {}
+            } catch (e) {log(e)}
             data.rollback = function() {
                 try {
                     vmodel.$remove()
